@@ -5,6 +5,15 @@ from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
+# Rute Ekuilibrium Dasar (Root)
+@app.get("/")
+def kalibrasi_awal():
+    return {
+        "status": "Ekuilibrium Tercapai",
+        "matriks": "Zuhri Formalism Backend Aktif",
+        "ruang_waktu": "Operasional"
+    }
+
 def hitung_jarak_haversine(lat1, lon1, lat2, lon2):
     R = 6371.0 
     dlat = math.radians(lat2 - lat1)
