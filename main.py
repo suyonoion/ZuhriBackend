@@ -59,20 +59,29 @@ def get_sinkronisasi():
             
         for i in range(start_idx, start_idx + 6):
             if i < len(hourly_times):
-                jam = hourly_times[i][-5:] # Mengambil HH:MM
+                # Konversi fisis ISO 8601 ke Waktu Lokal Indonesia
+                dt_obj = datetime.strptime(hourly_times[i], "%Y-%m-%dT%H:%M")
+                hari_indo = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][dt_obj.weekday()]
+                jam_str = f"{hari_indo}, {dt_obj.strftime('%H:%M')}"
+                
                 suhu_h = res_meteo["hourly"]["temperature_2m"][i]
                 prob_h = res_meteo["hourly"]["precipitation_probability"][i]
-                list_hourly.append({"waktu": jam, "suhu": f"{suhu_h}°C", "probabilitas_hujan": f"{prob_h}%"})
+                list_hourly.append({"waktu": jam_str, "suhu": f"{suhu_h}°C", "probabilitas_hujan": f"{prob_h}%"})
 
         # --- C. PROYEKSI HARIAN (NEXT 3 DAYS) ---
         daily_times = res_meteo["daily"]["time"]
         for i in range(1, 4): # Melewati indeks 0 (hari ini)
             if i < len(daily_times):
-                hari_date = daily_times[i][-5:] # Mengambil MM-DD
+                dt_obj = datetime.strptime(daily_times[i], "%Y-%m-%d")
+                hari_indo = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][dt_obj.weekday()]
+                bulan_indo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"]
+                tgl_str = f"{hari_indo}, {dt_obj.day} {bulan_indo[dt_obj.month - 1]}"
+                
                 suhu_max = res_meteo["daily"]["temperature_2m_max"][i]
                 suhu_min = res_meteo["daily"]["temperature_2m_min"][i]
                 prob_max = res_meteo["daily"]["precipitation_probability_max"][i]
-                list_daily.append({"hari": hari_date, "suhu_max": f"{suhu_max}°C", "suhu_min": f"{suhu_min}°C", "prob_hujan": f"{prob_max}%"})
+                list_daily.append({"hari": tgl_str, "suhu_max": f"{suhu_max}°C", "suhu_min": f"{suhu_min}°C", "prob_hujan": f"{prob_max}%"})
+
             
     except Exception:
         suhu_str = angin_str = rh_str = awan_str = presipitasi_str = "Ruptur"
