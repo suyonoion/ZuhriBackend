@@ -1,124 +1,183 @@
 from fastapi import FastAPI
 import requests
 import math
+from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
-# KOORDINAT ABSOLUT PUSAT EVALUASI SPASIAL (KENDAL, JAWA TENGAH)
+# KOORDINAT ABSOLUT PUSAT EVALUASI SPASIAL
 KENDAL_LAT = -6.92
 KENDAL_LON = 110.20
 
 def hitung_jarak_haversine(lat1, lon1, lat2, lon2):
-    """
-    Rumus fisis kelengkungan bumi untuk menghitung jarak absolut (Radius = 6371 km)
-    Menghasilkan output jarak dalam satuan Kilometer (km).
-    """
     R = 6371.0 
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    
     a = (math.sin(dlat / 2) ** 2 + 
          math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2)
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    
     return R * c
+
+def format_waktu_wib(timestamp_ms):
+    """Konversi waktu satelit universal (ms) ke waktu fisis lokal WIB (UTC+7)"""
+    dt_utc = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+    dt_wib = dt_utc + timedelta(hours=7)
+    # Format bahasa Indonesia fisis: DD Mon YYYY, HH:MM WIB
+    bulan_indo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"]
+    bulan = bulan_indo[dt_wib.month - 1]
+    return f"{dt_wib.day:02d} {bulan} {dt_wib.year}, {dt_wib.strftime('%H:%M')} WIB"
 
 @app.get("/sinkronisasi")
 def get_sinkronisasi():
-    # 1. EKSTRAKSI DAN EVALUASI MATRIKS ATMOSFER (OPEN-METEO)
+    # 1. EKSTRAKSI TERMODINAMIKA ATMOSFER (5 PARAMETER FISIS)
     try:
-        meteo_url = f"https://api.open-meteo.com/v1/forecast?latitude={KENDAL_LAT}&longitude={KENDAL_LON}&current=temperature_2m,wind_speed_10m"
+        meteo_url = f"https://api.open-meteo.com/v1/forecast?latitude={KENDAL_LAT}&longitude={KENDAL_LON}&current=temperature_2m,relative_humidity_2m,precipitation,cloud_cover,wind_speed_10m"
         res_meteo = requests.get(meteo_url, timeout=5).json()
-        raw_suhu = res_meteo["current"]["temperature_2m"]
-        raw_angin = res_meteo["current"]["wind_speed_10m"]
+        current = res_meteo["current"]
         
-        # Penilaian Parameter Termodinamika ZF
-        if raw_suhu >= 36.0 or raw_suhu <= 18.0:
-            suhu_str = f"{raw_suhu}°C [Ruptur Termal]"
-        else:
-            suhu_str = f"{raw_suhu}°C"
-            
-        if raw_angin >= 40.0:
-            angin_str = f"{raw_angin} km/j [Anomali Kinetik]"
-        else:
-            angin_str = f"{raw_angin} km/j"
+        raw_suhu = current["temperature_2m"]
+        raw_angin = current["wind_speed_10m"]
+        raw_rh = current["relative_humidity_2m"]
+        raw_awan = current["cloud_cover"]
+        raw_presipitasi = current["precipitation"]
+        
+        suhu_str = f"{raw_suhu}°C [Ruptur Termal]" if raw_suhu >= 36.0 or raw_suhu <= 18.0 else f"{raw_suhu}°C"
+        angin_str = f"{raw_angin} km/j [Anomali]" if raw_angin >= 40.0 else f"{raw_angin} km/j"
+        rh_str = f"{raw_rh}%"
+        awan_str = f"{raw_awan}%"
+        presipitasi_str = f"{raw_presipitasi} mm/j [Deras]" if raw_presipitasi >= 10.0 else f"{raw_presipitasi} mm/j"
             
     except Exception:
-        suhu_str = "-"
-        angin_str = "-"
+        suhu_str = angin_str = rh_str = awan_str = presipitasi_str = "Ruptur"
 
-    # 2. EKSTRAKSI DAN EVALUASI MATRIKS LITOSFER (USGS - GEOPARSING)
+    # 2. EKSTRAKSI DAN KLASIFIKASI ARRAY LITOSFER (USGS)
+    list_domestik = []
+    list_global = []
+    
+    # Penampung Litosfer Lokal (Prioritas Alarm)
+    lokal_gempa = None
+    jarak_terpendek = float('inf')
+
     try:
-        # Menarik 10 data aktivitas seismik terbaru di seluruh kerak bumi
-        usgs_url = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&limit=10"
-        res_usgs = requests.get(usgs_url, timeout=5).json()
+        # Menarik 100 data aktivitas seismik terbaru untuk memastikan zona global dan domestik terisi
+        usgs_url = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&limit=100"
+        res_usgs = requests.get(usgs_url, timeout=8).json()
         
-        target_gempa = None
-        jarak_terpendek = float('inf')
-        
-        # Pemindaian Spasial: Mencari peristiwa terdekat atau yang paling berdampak secara fisis
         for feature in res_usgs["features"]:
-            lon_episentrum = feature["geometry"]["coordinates"][0]
-            lat_episentrum = feature["geometry"]["coordinates"][1]
-            mag = feature["properties"]["mag"]
-            place = feature["properties"]["place"] or "Unknown Location"
+            props = feature["properties"]
+            geom = feature["geometry"]["coordinates"]
             
-            jarak_fisis = hitung_jarak_haversine(KENDAL_LAT, KENDAL_LON, lat_episentrum, lon_episentrum)
+            lon_epi = geom[0]
+            lat_epi = geom[1]
+            mag = props["mag"] if props["mag"] is not None else 0.0
+            place = props["place"] or "Unknown Location"
+            waktu_wib = format_waktu_wib(props["time"])
             
-            # Prioritas internal: Kunci peristiwa terdekat ke koordinat gawai
+            jarak_fisis = hitung_jarak_haversine(KENDAL_LAT, KENDAL_LON, lat_epi, lon_epi)
+            nama_tempat = place.split(" of ")[-1] if " of " in place else place
+
+            # --- A. PENYARINGAN RADAR LOKAL (JARAK TERDEKAT) ---
             if jarak_fisis < jarak_terpendek:
                 jarak_terpendek = jarak_fisis
-                target_gempa = {
-                    "place": place,
+                lokal_gempa = {
+                    "place": f"{nama_tempat} ({int(jarak_fisis)} km)",
                     "mag": mag,
-                    "distance": jarak_fisis
+                    "dist": jarak_fisis
                 }
-        
-        if target_gempa:
-            mag = target_gempa["mag"]
-            dist = target_gempa["distance"]
-            place = target_gempa["place"]
-            
-            # PROSES PENILAIAN THRESHOLD MATRIKS LOKAL (ZUHRI FORMALISM LOGIC)
-            if mag >= 6.0 and dist <= 500.0:
-                kode_warna = "Red"
-                status = "[AWAS] Ruptur Destruktif Radius Dekat!"
-            elif mag >= 5.0 and dist <= 1000.0:
-                kode_warna = "Orange"
-                status = "[SIAGA] Guncangan Signifikan Terdeteksi!"
-            elif "Indonesia" in place or "Java" in place or dist <= 2000.0:
-                kode_warna = "Yellow"
-                status = "[WASPADA] Aktivitas Seismik Domestik"
+
+            # --- B. KLASIFIKASI DOMESTIK INDONESIA ---
+            if "Indonesia" in place or "Java" in place or "Sumatra" in place or "Sulawesi" in place or jarak_fisis <= 2500.0:
+                # Ambang Batas Domestik
+                if mag >= 6.0:
+                    status = "[AWAS] Destruktif"
+                    warna = "Red"
+                elif mag >= 5.0:
+                    status = "[SIAGA] Guncangan Kuat"
+                    warna = "Orange"
+                else:
+                    status = "[WASPADA] Aktivitas Minor"
+                    warna = "Yellow"
+
+                list_domestik.append({
+                    "negara": "Indonesia / Perbatasan",
+                    "entitas": f"{nama_tempat} ({int(jarak_fisis)} km)",
+                    "jenis": "Gempa Tektonik",
+                    "probabilitas": "100% Faktual",
+                    "skala": f"{mag} SR",
+                    "bahaya": status,
+                    "waktu": waktu_wib,
+                    "warna_kode": warna
+                })
+
+            # --- C. KLASIFIKASI GLOBAL (ZONA MERAH & ORANYE: MAG >= 5.0) ---
+            elif mag >= 5.0:
+                if mag >= 6.0:
+                    status = "[AWAS] Keruntuhan Fatal"
+                    warna = "Red"
+                else:
+                    status = "[SIAGA] Guncangan Signifikan"
+                    warna = "Orange"
+
+                # Ekstraksi nama negara dari string USGS (biasanya setelah koma)
+                negara = place.split(", ")[-1] if ", " in place else "Global"
+                
+                list_global.append({
+                    "negara": negara,
+                    "entitas": nama_tempat,
+                    "jenis": "Gempa Tektonik",
+                    "probabilitas": "100% Faktual",
+                    "skala": f"{mag} SR",
+                    "bahaya": status,
+                    "waktu": waktu_wib,
+                    "warna_kode": warna
+                })
+
+        # Finalisasi Status Lokal (Kartu Alarm)
+        if lokal_gempa:
+            mag_lokal = lokal_gempa["mag"]
+            dist_lokal = lokal_gempa["dist"]
+            if mag_lokal >= 6.0 and dist_lokal <= 500.0:
+                lokal_warna = "Red"
+                lokal_status = "[AWAS] Ruptur Destruktif Dekat!"
+            elif mag_lokal >= 5.0 and dist_lokal <= 1000.0:
+                lokal_warna = "Orange"
+                lokal_status = "[SIAGA] Guncangan Terdeteksi!"
+            elif dist_lokal <= 2000.0:
+                lokal_warna = "Yellow"
+                lokal_status = "[WASPADA] Domestik Terdekat"
             else:
-                kode_warna = "Green"
-                status = "[INFO] Getaran Jauh / Aman"
-            
-            # Format pemangkasan string lokasi agar pas dengan resolusi layar gawai
-            nama_tempat = place.split(" of ")[-1] if " of " in place else place
-            lokasi_str = f"{nama_tempat} ({int(dist)} km)"
-            skala_str = f"{mag} SR"
+                lokal_warna = "Green"
+                lokal_status = "[INFO] Litosfer Sekitar Stabil"
+                
+            lokasi_str = lokal_gempa["place"]
+            skala_str = f"{mag_lokal} SR"
         else:
             lokasi_str = "Litosfer Stabil"
             skala_str = "-"
-            status = "Standby"
-            kode_warna = "Gray"
-            
+            lokal_status = "Standby"
+            lokal_warna = "Gray"
+
     except Exception as e:
         lokasi_str = "Gagal Mengakses Satelit"
         skala_str = "-"
-        status = "Ruptur Server"
-        kode_warna = "Red"
+        lokal_status = "Ruptur Server"
+        lokal_warna = "Red"
 
-    # TRANSMISI MATRIKS FINAL MENUJU ANDROID DEVICE
+    # 3. TRANSMISI MATRIKS FINAL MENUJU ANDROID DEVICE
     return {
         "cuaca": {
             "suhu": suhu_str,
-            "angin": angin_str
+            "angin": angin_str,
+            "kelembapan": rh_str,
+            "awan": awan_str,
+            "presipitasi": presipitasi_str
         },
         "bencana": {
             "lokasi": lokasi_str,
             "skala": skala_str,
-            "status_bahaya": status,
-            "kode_warna": kode_warna
-        }
+            "status_bahaya": lokal_status,
+            "kode_warna": lokal_warna
+        },
+        "data_domestik": list_domestik[:15], # Batasi maksimal 15 data agar memori UI tidak terbebani
+        "data_global": list_global[:15]
     }
