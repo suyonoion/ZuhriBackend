@@ -104,8 +104,9 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             lat_epi = float(geom[1])
             kedalaman_epi = f"{float(geom[2])} km"
             
-            # REKAYASA FOTON: Generator Peta Bebas API (OpenStreetMap)
-            url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat_epi},{lon_epi}&zoom=5&size=500x300&maptype=mapnik&markers={lat_epi},{lon_epi},red-pushpin"
+            # --- REKAYASA FOTON: Menggunakan Yandex Provider (Terbukti Lolos Validasi Seluler) ---
+url_visual_usgs = f"https://static-maps.yandex.ru/1.x/?ll={lon_epi},{lat_epi}&z=5&l=map&pt={lon_epi},{lat_epi},pm2rdl"
+
             
             mag = props["mag"] if props["mag"] is not None else 0.0
             place = props["place"] or "Unknown Location"
