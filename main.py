@@ -52,7 +52,6 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
         awan_str = f"{current['cloud_cover']}%"
         presipitasi_str = f"{current['precipitation']} mm/j"
 
-        # PROYEKSI ATMOSFER PER-JAM (6 JAM KEDEPAN)
         hourly_times = res_meteo["hourly"]["time"]
         start_idx = 0
         for idx, ht in enumerate(hourly_times):
@@ -69,7 +68,6 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
                 prob_h = res_meteo["hourly"]["precipitation_probability"][i]
                 list_hourly.append({"waktu": jam_str, "suhu": f"{suhu_h}°C", "probabilitas_hujan": f"{prob_h}%"})
 
-        # PROYEKSI ATMOSFER HARIAN (3 HARI KEDEPAN)
         daily_times = res_meteo["daily"]["time"]
         for i in range(1, 4):
             if i < len(daily_times):
@@ -106,9 +104,8 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             lat_epi = float(geom[1])
             kedalaman_epi = f"{float(geom[2])} km"
             
-# --- REKAYASA FOTON: Menggunakan OpenStreetMap Provider (Bebas API Key) ---
-url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat_epi},{lon_epi}&zoom=5&size=500x300&maptype=mapnik&markers={lat_epi},{lon_epi},red-pushpin"
-
+            # REKAYASA FOTON: Generator Peta Bebas API (OpenStreetMap)
+            url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat_epi},{lon_epi}&zoom=5&size=500x300&maptype=mapnik&markers={lat_epi},{lon_epi},red-pushpin"
             
             mag = props["mag"] if props["mag"] is not None else 0.0
             place = props["place"] or "Unknown Location"
@@ -117,7 +114,6 @@ url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat
             jarak_fisis = hitung_jarak_haversine(lat, lon, lat_epi, lon_epi)
             nama_tempat = place.split(" of ")[-1] if " of " in place else place
 
-            # Saringan Lokasi Terdekat dari Titik Pijak Gawai (Anchor Radar)
             if jarak_fisis < jarak_terpendek:
                 jarak_terpendek = jarak_fisis
                 lokal_gempa = {
@@ -130,7 +126,6 @@ url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat
                     "url": url_visual_usgs
                 }
 
-            # Pemetaan Distribusi Regional Domestik
             if "Indonesia" in place or "Java" in place or "Sumatra" in place or "Sulawesi" in place or jarak_fisis <= 2500.0:
                 status, warna = ("[AWAS] Destruktif", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Kuat", "Orange") if mag >= 5.0 else ("[WASPADA] Aktivitas Minor", "Yellow")
                 list_domestik.append({
@@ -147,7 +142,6 @@ url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat
                     "kedalaman": kedalaman_epi,
                     "url_peta": url_visual_usgs
                 })
-            # Pemetaan Distribusi Global (M >= 5.0)
             elif mag >= 5.0:
                 status, warna = ("[AWAS] Keruntuhan Fatal", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Signifikan", "Orange")
                 negara = place.split(", ")[-1] if ", " in place else "Global"
@@ -166,7 +160,6 @@ url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat
                     "url_peta": url_visual_usgs
                 })
 
-        # INTEGRASI STRUKTUR PENUH: Mengisi Variabel Kosong Pada Kartu Utama Beranda (Lokal)
         if lokal_gempa:
             mag_lokal, dist_lokal = lokal_gempa["mag"], lokal_gempa["dist"]
             if mag_lokal >= 6.0 and dist_lokal <= 500.0: lokal_warna, lokal_status = "Red", "[AWAS] Ruptur Destruktif Dekat!"
@@ -191,6 +184,7 @@ url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat
             }
             
     except Exception:
+        # Failsafe Mutlak yang sebelumnya Anda hapus tak sengaja
         bencana_dict = {
             "lokasi": "Gagal Mengakses Satelit USGS", "skala": "-", "status_bahaya": "Ruptur Server", "kode_warna": "Red",
             "latitude": 0.0, "longitude": 0.0, "kedalaman": "-", "url_peta": "-"
