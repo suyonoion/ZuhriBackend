@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
-# ================= RUTE AKAR (DETAK JANTUNG UPTIMEROBOT) ================= #
+# ================= RUTE AKAR (DETAK JANTUNG MONITORING) ================= #
 @app.get("/")
 def kalibrasi_awal():
     return {
@@ -14,7 +14,7 @@ def kalibrasi_awal():
         "ruang_waktu": "Operasional"
     }
 
-# ================= KALKULATOR GEOMETRI SPASIAL ================= #
+# ================= KONSOL PERHITUNGAN GEOMETRIS SPASIAL ================= #
 def hitung_jarak_haversine(lat1, lon1, lat2, lon2):
     R = 6371.0 
     dlat = math.radians(lat2 - lat1)
@@ -30,17 +30,17 @@ def format_waktu_wib(timestamp_ms):
     bulan_indo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"]
     return f"{dt_wib.day:02d} {bulan_indo[dt_wib.month - 1]} {dt_wib.year}, {dt_wib.strftime('%H:%M')} WIB"
 
-# ================= RUTE TRANSMISI MATRIKS UTAMA ================= #
+# ================= GERBANG TRANSMISI DATA UTAMA ================= #
 @app.get("/sinkronisasi")
 def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: str = "Blorok, Brangsong, Kab. Kendal"):
     list_hourly = []
     list_daily = []
     
-    # KALIBRASI TEMPORAL: Pembulatan Waktu Fisis
+    # KOREKSI TEMPORAL SINKRON
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
     waktu_sekarang_str = now_wib.strftime("%Y-%m-%dT%H:00")
     
-    # --- 1. PEMANEN DATA TERMODINAMIKA (CUACA) ---
+    # --- SUBSISTEM 1: TERMODINAMIKA (ATMOSFER / CUACA) ---
     try:
         meteo_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,precipitation,cloud_cover,wind_speed_10m&hourly=temperature_2m,precipitation_probability&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FJakarta"
         res_meteo = requests.get(meteo_url, timeout=5).json()
@@ -52,7 +52,7 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
         awan_str = f"{current['cloud_cover']}%"
         presipitasi_str = f"{current['precipitation']} mm/j"
 
-        # PROYEKSI PER-JAM
+        # PROYEKSI ATMOSFER PER-JAM (6 JAM KEDEPAN)
         hourly_times = res_meteo["hourly"]["time"]
         start_idx = 0
         for idx, ht in enumerate(hourly_times):
@@ -69,7 +69,7 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
                 prob_h = res_meteo["hourly"]["precipitation_probability"][i]
                 list_hourly.append({"waktu": jam_str, "suhu": f"{suhu_h}°C", "probabilitas_hujan": f"{prob_h}%"})
 
-        # PROYEKSI HARIAN
+        # PROYEKSI ATMOSFER HARIAN (3 HARI KEDEPAN)
         daily_times = res_meteo["daily"]["time"]
         for i in range(1, 4):
             if i < len(daily_times):
@@ -87,7 +87,7 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
     except Exception:
         suhu_str = angin_str = rh_str = awan_str = presipitasi_str = "Ruptur"
 
-    # --- 2. PEMANEN DATA LITOSFER (GEMPA USGS) ---
+    # --- SUBSISTEM 2: LITOSFER (GEODYNAMICS / GEMPA BUMI) ---
     list_domestik = []
     list_global = []
     lokal_gempa = None
@@ -101,11 +101,13 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             props = feature["properties"]
             geom = feature["geometry"]["coordinates"]
             
-            # Ekstraksi Koordinat Absolut
+            # Ekstraksi Koordinat Fisis Absolut
             lon_epi = float(geom[0])
             lat_epi = float(geom[1])
             kedalaman_epi = f"{float(geom[2])} km"
-            url_visual_usgs = props["url"] if props["url"] else "-"
+            
+            # REKAYASA FOTON: Mengubah Halaman HTML Menjadi Tensor Citra Peta Statis Valid (.png)
+            url_visual_usgs = f"https://static-maps.yandex.ru/1.x/?ll={lon_epi},{lat_epi}&z=4&l=map&pt={lon_epi},{lat_epi},pm2rdm"
             
             mag = props["mag"] if props["mag"] is not None else 0.0
             place = props["place"] or "Unknown Location"
@@ -114,12 +116,20 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             jarak_fisis = hitung_jarak_haversine(lat, lon, lat_epi, lon_epi)
             nama_tempat = place.split(" of ")[-1] if " of " in place else place
 
-            # Identifikasi Titik Kritis Lokal
+            # Saringan Lokasi Terdekat dari Titik Pijak Gawai (Anchor Radar)
             if jarak_fisis < jarak_terpendek:
                 jarak_terpendek = jarak_fisis
-                lokal_gempa = {"place": f"{nama_tempat} ({int(jarak_fisis)} km)", "mag": mag, "dist": jarak_fisis}
+                lokal_gempa = {
+                    "place": nama_tempat, 
+                    "mag": mag, 
+                    "dist": jarak_fisis,
+                    "lat": lat_epi,
+                    "lon": lon_epi,
+                    "depth": kedalaman_epi,
+                    "url": url_visual_usgs
+                }
 
-            # Penyusunan Matriks Domestik & Global dengan Parameter Lengkap
+            # Pemetaan Distribusi Regional Domestik
             if "Indonesia" in place or "Java" in place or "Sumatra" in place or "Sulawesi" in place or jarak_fisis <= 2500.0:
                 status, warna = ("[AWAS] Destruktif", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Kuat", "Orange") if mag >= 5.0 else ("[WASPADA] Aktivitas Minor", "Yellow")
                 list_domestik.append({
@@ -136,6 +146,7 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
                     "kedalaman": kedalaman_epi,
                     "url_peta": url_visual_usgs
                 })
+            # Pemetaan Distribusi Global (M >= 5.0)
             elif mag >= 5.0:
                 status, warna = ("[AWAS] Keruntuhan Fatal", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Signifikan", "Orange")
                 negara = place.split(", ")[-1] if ", " in place else "Global"
@@ -154,26 +165,42 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
                     "url_peta": url_visual_usgs
                 })
 
-        # Finalisasi Peringatan Lokal (Beranda Android)
+        # INTEGRASI STRUKTUR PENUH: Mengisi Variabel Kosong Pada Kartu Utama Beranda (Lokal)
         if lokal_gempa:
             mag_lokal, dist_lokal = lokal_gempa["mag"], lokal_gempa["dist"]
             if mag_lokal >= 6.0 and dist_lokal <= 500.0: lokal_warna, lokal_status = "Red", "[AWAS] Ruptur Destruktif Dekat!"
             elif mag_lokal >= 5.0 and dist_lokal <= 1000.0: lokal_warna, lokal_status = "Orange", "[SIAGA] Guncangan Terdeteksi!"
             elif dist_lokal <= 2000.0: lokal_warna, lokal_status = "Yellow", "[WASPADA] Domestik Terdekat"
             else: lokal_warna, lokal_status = "Green", "[INFO] Litosfer Sekitar Stabil"
-            lokasi_str, skala_str = lokal_gempa["place"], f"{mag_lokal} SR"
+            
+            bencana_dict = {
+                "lokasi": f"{lokal_gempa['place']} ({int(dist_lokal)} km)", 
+                "skala": f"{mag_lokal} SR", 
+                "status_bahaya": lokal_status, 
+                "kode_warna": lokal_warna,
+                "latitude": lokal_gempa["lat"],
+                "longitude": lokal_gempa["lon"],
+                "kedalaman": lokal_gempa["depth"],
+                "url_peta": lokal_gempa["url"]
+            }
         else:
-            lokasi_str, skala_str, lokal_status, lokal_warna = "Litosfer Stabil", "-", "Standby", "Gray"
+            bencana_dict = {
+                "lokasi": "Litosfer Stabil", "skala": "-", "status_bahaya": "Standby", "kode_warna": "Gray",
+                "latitude": 0.0, "longitude": 0.0, "kedalaman": "-", "url_peta": "-"
+            }
             
     except Exception:
-        lokasi_str, skala_str, lokal_status, lokal_warna = "Gagal Mengakses Satelit USGS", "-", "Ruptur Server", "Red"
+        bencana_dict = {
+            "lokasi": "Gagal Mengakses Satelit USGS", "skala": "-", "status_bahaya": "Ruptur Server", "kode_warna": "Red",
+            "latitude": 0.0, "longitude": 0.0, "kedalaman": "-", "url_peta": "-"
+        }
 
-    # --- 3. PENGGABUNGAN MATRIKS FINAL (JSON RESPONS) ---
+    # --- SUBSISTEM 3: STRUKTUR PENGGABUNGAN MATRIKS RESPONS JSON FINAL ---
     return {
         "meta_lokasi": lokasi_nama,
         "cuaca": {"suhu": suhu_str, "angin": angin_str, "kelembapan": rh_str, "awan": awan_str, "presipitasi": presipitasi_str},
         "proyeksi_cuaca": {"per_jam": list_hourly, "harian": list_daily},
-        "bencana": {"lokasi": lokasi_str, "skala": skala_str, "status_bahaya": lokal_status, "kode_warna": lokal_warna},
+        "bencana": bencana_dict,
         "data_domestik": list_domestik[:15],
         "data_global": list_global[:15]
     }
