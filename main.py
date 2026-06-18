@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
-# ================= RUTE AKAR (DETAK JANTUNG MONITORING) ================= #
+# ================= RUTE AKAR ================= #
 @app.get("/")
 def kalibrasi_awal():
     return {
@@ -14,7 +14,7 @@ def kalibrasi_awal():
         "ruang_waktu": "Operasional"
     }
 
-# ================= KONSOL PERHITUNGAN GEOMETRIS SPASIAL ================= #
+# ================= KONSOL GEOMETRIS SPASIAL ================= #
 def hitung_jarak_haversine(lat1, lon1, lat2, lon2):
     R = 6371.0 
     dlat = math.radians(lat2 - lat1)
@@ -36,11 +36,10 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
     list_hourly = []
     list_daily = []
     
-    # KOREKSI TEMPORAL SINKRON
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
     waktu_sekarang_str = now_wib.strftime("%Y-%m-%dT%H:00")
     
-    # --- SUBSISTEM 1: TERMODINAMIKA (ATMOSFER / CUACA) ---
+    # --- SUBSISTEM 1: TERMODINAMIKA (ATMOSFER) ---
     try:
         meteo_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,precipitation,cloud_cover,wind_speed_10m&hourly=temperature_2m,precipitation_probability&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FJakarta"
         res_meteo = requests.get(meteo_url, timeout=5).json()
@@ -85,7 +84,7 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
     except Exception:
         suhu_str = angin_str = rh_str = awan_str = presipitasi_str = "Ruptur"
 
-    # --- SUBSISTEM 2: LITOSFER (GEODYNAMICS / GEMPA BUMI) ---
+    # --- SUBSISTEM 2: LITOSFER (GEODYNAMICS) ---
     list_domestik = []
     list_global = []
     lokal_gempa = None
@@ -99,14 +98,12 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             props = feature["properties"]
             geom = feature["geometry"]["coordinates"]
             
-            # Ekstraksi Koordinat Fisis Absolut
             lon_epi = float(geom[0])
             lat_epi = float(geom[1])
             kedalaman_epi = f"{float(geom[2])} km"
             
-            # --- REKAYASA FOTON: Menggunakan Yandex Provider (Terbukti Lolos Validasi Seluler) ---
-url_visual_usgs = f"https://static-maps.yandex.ru/1.x/?ll={lon_epi},{lat_epi}&z=5&l=map&pt={lon_epi},{lat_epi},pm2rdl"
-
+            # --- REKAYASA FOTON: YANDEX PROVIDER ---
+            url_visual_usgs = f"https://static-maps.yandex.ru/1.x/?ll={lon_epi},{lat_epi}&z=5&l=map&pt={lon_epi},{lat_epi},pm2rdl"
             
             mag = props["mag"] if props["mag"] is not None else 0.0
             place = props["place"] or "Unknown Location"
@@ -118,47 +115,24 @@ url_visual_usgs = f"https://static-maps.yandex.ru/1.x/?ll={lon_epi},{lat_epi}&z=
             if jarak_fisis < jarak_terpendek:
                 jarak_terpendek = jarak_fisis
                 lokal_gempa = {
-                    "place": nama_tempat, 
-                    "mag": mag, 
-                    "dist": jarak_fisis,
-                    "lat": lat_epi,
-                    "lon": lon_epi,
-                    "depth": kedalaman_epi,
-                    "url": url_visual_usgs
+                    "place": nama_tempat, "mag": mag, "dist": jarak_fisis,
+                    "lat": lat_epi, "lon": lon_epi, "depth": kedalaman_epi, "url": url_visual_usgs
                 }
 
             if "Indonesia" in place or "Java" in place or "Sumatra" in place or "Sulawesi" in place or jarak_fisis <= 2500.0:
                 status, warna = ("[AWAS] Destruktif", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Kuat", "Orange") if mag >= 5.0 else ("[WASPADA] Aktivitas Minor", "Yellow")
                 list_domestik.append({
-                    "negara": "Indonesia / Perbatasan", 
-                    "entitas": nama_tempat, 
-                    "jenis": "Gempa Tektonik", 
-                    "probabilitas": "100% Faktual", 
-                    "skala": f"{mag} SR", 
-                    "bahaya": status, 
-                    "waktu": waktu_wib, 
-                    "warna_kode": warna,
-                    "latitude": lat_epi,
-                    "longitude": lon_epi,
-                    "kedalaman": kedalaman_epi,
-                    "url_peta": url_visual_usgs
+                    "negara": "Indonesia / Perbatasan", "entitas": nama_tempat, "jenis": "Gempa Tektonik", 
+                    "probabilitas": "100% Faktual", "skala": f"{mag} SR", "bahaya": status, "waktu": waktu_wib, 
+                    "warna_kode": warna, "latitude": lat_epi, "longitude": lon_epi, "kedalaman": kedalaman_epi, "url_peta": url_visual_usgs
                 })
             elif mag >= 5.0:
                 status, warna = ("[AWAS] Keruntuhan Fatal", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Signifikan", "Orange")
                 negara = place.split(", ")[-1] if ", " in place else "Global"
                 list_global.append({
-                    "negara": negara, 
-                    "entitas": nama_tempat, 
-                    "jenis": "Gempa Tektonik", 
-                    "probabilitas": "100% Faktual", 
-                    "skala": f"{mag} SR", 
-                    "bahaya": status, 
-                    "waktu": waktu_wib, 
-                    "warna_kode": warna,
-                    "latitude": lat_epi,
-                    "longitude": lon_epi,
-                    "kedalaman": kedalaman_epi,
-                    "url_peta": url_visual_usgs
+                    "negara": negara, "entitas": nama_tempat, "jenis": "Gempa Tektonik", 
+                    "probabilitas": "100% Faktual", "skala": f"{mag} SR", "bahaya": status, "waktu": waktu_wib, 
+                    "warna_kode": warna, "latitude": lat_epi, "longitude": lon_epi, "kedalaman": kedalaman_epi, "url_peta": url_visual_usgs
                 })
 
         if lokal_gempa:
@@ -170,13 +144,9 @@ url_visual_usgs = f"https://static-maps.yandex.ru/1.x/?ll={lon_epi},{lat_epi}&z=
             
             bencana_dict = {
                 "lokasi": f"{lokal_gempa['place']} ({int(dist_lokal)} km)", 
-                "skala": f"{mag_lokal} SR", 
-                "status_bahaya": lokal_status, 
-                "kode_warna": lokal_warna,
-                "latitude": lokal_gempa["lat"],
-                "longitude": lokal_gempa["lon"],
-                "kedalaman": lokal_gempa["depth"],
-                "url_peta": lokal_gempa["url"]
+                "skala": f"{mag_lokal} SR", "status_bahaya": lokal_status, "kode_warna": lokal_warna,
+                "latitude": lokal_gempa["lat"], "longitude": lokal_gempa["lon"],
+                "kedalaman": lokal_gempa["depth"], "url_peta": lokal_gempa["url"]
             }
         else:
             bencana_dict = {
@@ -185,13 +155,12 @@ url_visual_usgs = f"https://static-maps.yandex.ru/1.x/?ll={lon_epi},{lat_epi}&z=
             }
             
     except Exception:
-        # Failsafe Mutlak yang sebelumnya Anda hapus tak sengaja
         bencana_dict = {
             "lokasi": "Gagal Mengakses Satelit USGS", "skala": "-", "status_bahaya": "Ruptur Server", "kode_warna": "Red",
             "latitude": 0.0, "longitude": 0.0, "kedalaman": "-", "url_peta": "-"
         }
 
-    # --- SUBSISTEM 3: STRUKTUR PENGGABUNGAN MATRIKS RESPONS JSON FINAL ---
+    # --- SUBSISTEM 3: PENGGABUNGAN MATRIKS FINAL ---
     return {
         "meta_lokasi": lokasi_nama,
         "cuaca": {"suhu": suhu_str, "angin": angin_str, "kelembapan": rh_str, "awan": awan_str, "presipitasi": presipitasi_str},
