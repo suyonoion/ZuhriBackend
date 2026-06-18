@@ -94,14 +94,21 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
     lokal_gempa = None
     jarak_terpendek = float('inf')
 
-    try:
+      try:
         usgs_url = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&limit=100"
         res_usgs = requests.get(usgs_url, timeout=8).json()
         
         for feature in res_usgs["features"]:
             props = feature["properties"]
             geom = feature["geometry"]["coordinates"]
-            lon_epi, lat_epi = geom[0], geom[1]
+            
+            # --- EKSTRAKSI KOORDINAT ABSOLUT UNTUK PANEL FORENSIK KOTLIN ---
+            lon_epi = float(geom[0])
+            lat_epi = float(geom[1])
+            kedalaman_epi = f"{float(geom[2])} km"
+            url_visual_usgs = props["url"] if props["url"] else "-"
+            # ----------------------------------------------------------------
+            
             mag = props["mag"] if props["mag"] is not None else 0.0
             place = props["place"] or "Unknown Location"
             waktu_wib = format_waktu_wib(props["time"])
@@ -109,18 +116,56 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             jarak_fisis = hitung_jarak_haversine(lat, lon, lat_epi, lon_epi)
             nama_tempat = place.split(" of ")[-1] if " of " in place else place
 
+            # KALIBRASI LITOSFER LOKAL UTAMA
             if jarak_fisis < jarak_terpendek:
                 jarak_terpendek = jarak_fisis
-                lokal_gempa = {"place": f"{nama_tempat} ({int(jarak_fisis)} km)", "mag": mag, "dist": jarak_fisis}
+                lokal_gempa = {
+                    "place": f"{nama_tempat} ({int(jarak_fisis)} km)", 
+                    "mag": mag, 
+                    "dist": jarak_fisis,
+                    "lat": lat_epi,
+                    "lon": lon_epi,
+                    "depth": kedalaman_epi
+                }
 
+            # PENYUSUNAN MATRIKS DOMESTIK
             if "Indonesia" in place or "Java" in place or "Sumatra" in place or "Sulawesi" in place or jarak_fisis <= 2500.0:
                 status, warna = ("[AWAS] Destruktif", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Kuat", "Orange") if mag >= 5.0 else ("[WASPADA] Aktivitas Minor", "Yellow")
-                list_domestik.append({"negara": "Indonesia / Perbatasan", "entitas": f"{nama_tempat} ({int(jarak_fisis)} km)", "jenis": "Gempa Tektonik", "probabilitas": "100% Faktual", "skala": f"{mag} SR", "bahaya": status, "waktu": waktu_wib, "warna_kode": warna})
+                list_domestik.append({
+                    "negara": "Indonesia / Perbatasan", 
+                    "entitas": f"{nama_tempat}", 
+                    "jenis": "Gempa Tektonik", 
+                    "probabilitas": "100% Faktual", 
+                    "skala": f"{mag} SR", 
+                    "bahaya": status, 
+                    "waktu": waktu_wib, 
+                    "warna_kode": warna,
+                    "latitude": lat_epi,           # Injeksi Kotlin
+                    "longitude": lon_epi,          # Injeksi Kotlin
+                    "kedalaman": kedalaman_epi,    # Injeksi Kotlin
+                    "url_peta": url_visual_usgs    # Injeksi Kotlin
+                })
+                
+            # PENYUSUNAN MATRIKS GLOBAL (M >= 5.0)
             elif mag >= 5.0:
                 status, warna = ("[AWAS] Keruntuhan Fatal", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Signifikan", "Orange")
                 negara = place.split(", ")[-1] if ", " in place else "Global"
-                list_global.append({"negara": negara, "entitas": nama_tempat, "jenis": "Gempa Tektonik", "probabilitas": "100% Faktual", "skala": f"{mag} SR", "bahaya": status, "waktu": waktu_wib, "warna_kode": warna})
+                list_global.append({
+                    "negara": negara, 
+                    "entitas": nama_tempat, 
+                    "jenis": "Gempa Tektonik", 
+                    "probabilitas": "100% Faktual", 
+                    "skala": f"{mag} SR", 
+                    "bahaya": status, 
+                    "waktu": waktu_wib, 
+                    "warna_kode": warna,
+                    "latitude": lat_epi,           # Injeksi Kotlin
+                    "longitude": lon_epi,          # Injeksi Kotlin
+                    "kedalaman": kedalaman_epi,    # Injeksi Kotlin
+                    "url_peta": url_visual_usgs    # Injeksi Kotlin
+                })
 
+        # LOGIKA PERINGATAN LOKAL (PANEL ATAS)
         if lokal_gempa:
             mag_lokal, dist_lokal = lokal_gempa["mag"], lokal_gempa["dist"]
             if mag_lokal >= 6.0 and dist_lokal <= 500.0: lokal_warna, lokal_status = "Red", "[AWAS] Ruptur Destruktif Dekat!"
@@ -130,8 +175,11 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             lokasi_str, skala_str = lokal_gempa["place"], f"{mag_lokal} SR"
         else:
             lokasi_str, skala_str, lokal_status, lokal_warna = "Litosfer Stabil", "-", "Standby", "Gray"
-    except Exception:
-        lokasi_str, skala_str, lokal_status, lokal_warna = "Gagal Mengakses Satelit", "-", "Ruptur Server", "Red"
+            
+    except Exception as e:
+        # Failsafe agar tidak crash seluruhnya jika USGS down
+        lokasi_str, skala_str, lokal_status, lokal_warna = "Gagal Mengakses Satelit USGS", "-", "Ruptur Server", "Red"
+
 
     return {
         "meta_lokasi": lokasi_nama, # Parameter dinamis baru
