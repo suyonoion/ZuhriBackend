@@ -106,8 +106,9 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             lat_epi = float(geom[1])
             kedalaman_epi = f"{float(geom[2])} km"
             
-            # REKAYASA FOTON: Mengubah Halaman HTML Menjadi Tensor Citra Peta Statis Valid (.png)
-            url_visual_usgs = f"https://static-maps.yandex.ru/1.x/?ll={lon_epi},{lat_epi}&z=4&l=map&pt={lon_epi},{lat_epi},pm2rdm"
+# --- REKAYASA FOTON: Menggunakan OpenStreetMap Provider (Bebas API Key) ---
+url_visual_usgs = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat_epi},{lon_epi}&zoom=5&size=500x300&maptype=mapnik&markers={lat_epi},{lon_epi},red-pushpin"
+
             
             mag = props["mag"] if props["mag"] is not None else 0.0
             place = props["place"] or "Unknown Location"
