@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
-# Rute Ekuilibrium Dasar (Root)
+# ================= RUTE AKAR (DETAK JANTUNG UPTIMEROBOT) ================= #
 @app.get("/")
 def kalibrasi_awal():
     return {
@@ -14,6 +14,7 @@ def kalibrasi_awal():
         "ruang_waktu": "Operasional"
     }
 
+# ================= KALKULATOR GEOMETRI SPASIAL ================= #
 def hitung_jarak_haversine(lat1, lon1, lat2, lon2):
     R = 6371.0 
     dlat = math.radians(lat2 - lat1)
@@ -29,16 +30,17 @@ def format_waktu_wib(timestamp_ms):
     bulan_indo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agt", "Sep", "Okt", "Nov", "Des"]
     return f"{dt_wib.day:02d} {bulan_indo[dt_wib.month - 1]} {dt_wib.year}, {dt_wib.strftime('%H:%M')} WIB"
 
-# INJEKSI PARAMETER GPS DINAMIS (Default: Desa Blorok, Brangsong)
+# ================= RUTE TRANSMISI MATRIKS UTAMA ================= #
 @app.get("/sinkronisasi")
 def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: str = "Blorok, Brangsong, Kab. Kendal"):
     list_hourly = []
     list_daily = []
     
-    # KALIBRASI TEMPORAL: Pembulatan Waktu Fisis Saat Ini ke Resolusi Jam (Menghilangkan Menit)
+    # KALIBRASI TEMPORAL: Pembulatan Waktu Fisis
     now_wib = datetime.now(timezone.utc) + timedelta(hours=7)
     waktu_sekarang_str = now_wib.strftime("%Y-%m-%dT%H:00")
     
+    # --- 1. PEMANEN DATA TERMODINAMIKA (CUACA) ---
     try:
         meteo_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,precipitation,cloud_cover,wind_speed_10m&hourly=temperature_2m,precipitation_probability&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FJakarta"
         res_meteo = requests.get(meteo_url, timeout=5).json()
@@ -50,10 +52,8 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
         awan_str = f"{current['cloud_cover']}%"
         presipitasi_str = f"{current['precipitation']} mm/j"
 
-        # EKSEKUSI PROYEKSI PER-JAM (Masa Depan Mutlak)
+        # PROYEKSI PER-JAM
         hourly_times = res_meteo["hourly"]["time"]
-        
-        # Mencari indeks satelit yang secara fisis cocok atau lebih besar dari jam saat ini
         start_idx = 0
         for idx, ht in enumerate(hourly_times):
             if ht >= waktu_sekarang_str:
@@ -65,12 +65,11 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
                 dt_obj = datetime.strptime(hourly_times[i], "%Y-%m-%dT%H:%M")
                 hari_indo = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][dt_obj.weekday()]
                 jam_str = f"{hari_indo}, {dt_obj.strftime('%H:%M')}"
-                
                 suhu_h = res_meteo["hourly"]["temperature_2m"][i]
                 prob_h = res_meteo["hourly"]["precipitation_probability"][i]
                 list_hourly.append({"waktu": jam_str, "suhu": f"{suhu_h}°C", "probabilitas_hujan": f"{prob_h}%"})
 
-        # EKSEKUSI PROYEKSI HARIAN
+        # PROYEKSI HARIAN
         daily_times = res_meteo["daily"]["time"]
         for i in range(1, 4):
             if i < len(daily_times):
@@ -88,13 +87,13 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
     except Exception:
         suhu_str = angin_str = rh_str = awan_str = presipitasi_str = "Ruptur"
 
-    # LITOSFER USGS (DIKALIBRASI DENGAN KOORDINAT GPS BLOROK)
+    # --- 2. PEMANEN DATA LITOSFER (GEMPA USGS) ---
     list_domestik = []
     list_global = []
     lokal_gempa = None
     jarak_terpendek = float('inf')
 
-      try:
+    try:
         usgs_url = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&limit=100"
         res_usgs = requests.get(usgs_url, timeout=8).json()
         
@@ -102,12 +101,11 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             props = feature["properties"]
             geom = feature["geometry"]["coordinates"]
             
-            # --- EKSTRAKSI KOORDINAT ABSOLUT UNTUK PANEL FORENSIK KOTLIN ---
+            # Ekstraksi Koordinat Absolut
             lon_epi = float(geom[0])
             lat_epi = float(geom[1])
             kedalaman_epi = f"{float(geom[2])} km"
             url_visual_usgs = props["url"] if props["url"] else "-"
-            # ----------------------------------------------------------------
             
             mag = props["mag"] if props["mag"] is not None else 0.0
             place = props["place"] or "Unknown Location"
@@ -116,37 +114,28 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
             jarak_fisis = hitung_jarak_haversine(lat, lon, lat_epi, lon_epi)
             nama_tempat = place.split(" of ")[-1] if " of " in place else place
 
-            # KALIBRASI LITOSFER LOKAL UTAMA
+            # Identifikasi Titik Kritis Lokal
             if jarak_fisis < jarak_terpendek:
                 jarak_terpendek = jarak_fisis
-                lokal_gempa = {
-                    "place": f"{nama_tempat} ({int(jarak_fisis)} km)", 
-                    "mag": mag, 
-                    "dist": jarak_fisis,
-                    "lat": lat_epi,
-                    "lon": lon_epi,
-                    "depth": kedalaman_epi
-                }
+                lokal_gempa = {"place": f"{nama_tempat} ({int(jarak_fisis)} km)", "mag": mag, "dist": jarak_fisis}
 
-            # PENYUSUNAN MATRIKS DOMESTIK
+            # Penyusunan Matriks Domestik & Global dengan Parameter Lengkap
             if "Indonesia" in place or "Java" in place or "Sumatra" in place or "Sulawesi" in place or jarak_fisis <= 2500.0:
                 status, warna = ("[AWAS] Destruktif", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Kuat", "Orange") if mag >= 5.0 else ("[WASPADA] Aktivitas Minor", "Yellow")
                 list_domestik.append({
                     "negara": "Indonesia / Perbatasan", 
-                    "entitas": f"{nama_tempat}", 
+                    "entitas": nama_tempat, 
                     "jenis": "Gempa Tektonik", 
                     "probabilitas": "100% Faktual", 
                     "skala": f"{mag} SR", 
                     "bahaya": status, 
                     "waktu": waktu_wib, 
                     "warna_kode": warna,
-                    "latitude": lat_epi,           # Injeksi Kotlin
-                    "longitude": lon_epi,          # Injeksi Kotlin
-                    "kedalaman": kedalaman_epi,    # Injeksi Kotlin
-                    "url_peta": url_visual_usgs    # Injeksi Kotlin
+                    "latitude": lat_epi,
+                    "longitude": lon_epi,
+                    "kedalaman": kedalaman_epi,
+                    "url_peta": url_visual_usgs
                 })
-                
-            # PENYUSUNAN MATRIKS GLOBAL (M >= 5.0)
             elif mag >= 5.0:
                 status, warna = ("[AWAS] Keruntuhan Fatal", "Red") if mag >= 6.0 else ("[SIAGA] Guncangan Signifikan", "Orange")
                 negara = place.split(", ")[-1] if ", " in place else "Global"
@@ -159,13 +148,13 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
                     "bahaya": status, 
                     "waktu": waktu_wib, 
                     "warna_kode": warna,
-                    "latitude": lat_epi,           # Injeksi Kotlin
-                    "longitude": lon_epi,          # Injeksi Kotlin
-                    "kedalaman": kedalaman_epi,    # Injeksi Kotlin
-                    "url_peta": url_visual_usgs    # Injeksi Kotlin
+                    "latitude": lat_epi,
+                    "longitude": lon_epi,
+                    "kedalaman": kedalaman_epi,
+                    "url_peta": url_visual_usgs
                 })
 
-        # LOGIKA PERINGATAN LOKAL (PANEL ATAS)
+        # Finalisasi Peringatan Lokal (Beranda Android)
         if lokal_gempa:
             mag_lokal, dist_lokal = lokal_gempa["mag"], lokal_gempa["dist"]
             if mag_lokal >= 6.0 and dist_lokal <= 500.0: lokal_warna, lokal_status = "Red", "[AWAS] Ruptur Destruktif Dekat!"
@@ -176,13 +165,12 @@ def get_sinkronisasi(lat: float = -6.9535, lon: float = 110.2312, lokasi_nama: s
         else:
             lokasi_str, skala_str, lokal_status, lokal_warna = "Litosfer Stabil", "-", "Standby", "Gray"
             
-    except Exception as e:
-        # Failsafe agar tidak crash seluruhnya jika USGS down
+    except Exception:
         lokasi_str, skala_str, lokal_status, lokal_warna = "Gagal Mengakses Satelit USGS", "-", "Ruptur Server", "Red"
 
-
+    # --- 3. PENGGABUNGAN MATRIKS FINAL (JSON RESPONS) ---
     return {
-        "meta_lokasi": lokasi_nama, # Parameter dinamis baru
+        "meta_lokasi": lokasi_nama,
         "cuaca": {"suhu": suhu_str, "angin": angin_str, "kelembapan": rh_str, "awan": awan_str, "presipitasi": presipitasi_str},
         "proyeksi_cuaca": {"per_jam": list_hourly, "harian": list_daily},
         "bencana": {"lokasi": lokasi_str, "skala": skala_str, "status_bahaya": lokal_status, "kode_warna": lokal_warna},
